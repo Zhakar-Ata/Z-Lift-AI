@@ -1,0 +1,16 @@
+{
+  "name": "Z Lift AI — دستیار هوشمند تکنسین آسانسور",
+  "short_name": "Z Lift AI",
+  "description": "دستیار هوشمند فنی برای تکنسین‌های آسانسور: عیب‌یابی، استاندارد، محاسبات و خطاهای درایو",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#0ea5e9",
+  "background_color": "#070d17",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
