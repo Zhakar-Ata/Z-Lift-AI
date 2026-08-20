@@ -34,6 +34,15 @@ const QUICK = [
 /* ---------------- render helpers ---------------- */
 const INTENT_FA = { standard: '📚 حالت استاندارد', vvvf: '📟 خطای درایو', calc: '🧮 محاسبه', diagnose: '🔧 عیب‌یابی', learn: '🎓 آموزش', safety: '⚠️ ایمنی' };
 
+/* Source-card status codes are internal English enums; showing them raw makes
+   the Persian UI read as half-translated. Localize, with a safe fallback. */
+const STATUS_FA = {
+  VERIFIED: 'تأییدشده', MIXED: 'ترکیبی', PUBLISHED: 'منتشرشده', NONE: 'بدون منبع',
+  DRAFT: 'پیش‌نویس', REVIEW: 'در حال بازبینی', ARCHIVED: 'بایگانی‌شده',
+  verified: 'تأییدشده', high_confidence: 'اطمینان بالا'
+};
+const statusFa = s => STATUS_FA[s] || STATUS_FA[String(s).toUpperCase()] || s;
+
 function addMsg(role, text, extra) {
   const chat = $('#chat');
   const div = document.createElement('div');
@@ -48,7 +57,7 @@ function addMsg(role, text, extra) {
     inner += `<div class="source-card">
       <span class="sc-ico">📎</span>
       <span class="sc-body"><b>${esc(extra.sourceCard.title)}</b><br>
-      <span class="sc-sub">وضعیت: ${esc(extra.sourceCard.status)} · نسخه ${esc(extra.sourceCard.version)} — ${esc(extra.sourceCard.quality)}</span></span>
+      <span class="sc-sub">وضعیت: ${esc(statusFa(extra.sourceCard.status))} · نسخه ${esc(extra.sourceCard.version)} — ${esc(extra.sourceCard.quality)}</span></span>
     </div>`;
   }
   if (role === 'ai' && extra && extra.actions && extra.actions.length) {

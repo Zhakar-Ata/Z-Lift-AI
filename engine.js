@@ -37,9 +37,12 @@ const SLANG = [
   // [pattern (normalized persian), canonical concept tokens]
   ['راه نمیفته', 'حرکت نمیکند'], ['راه نمی افته', 'حرکت نمیکند'], ['روشن نمیشه', 'حرکت نمیکند برق'],
   ['کار نمیکنه', 'حرکت نمیکند'], ['نمیره بالا', 'یک جهت بالا'], ['نمیاد پایین', 'یک جهت پایین'],
-  ['بریک', 'ترمز'], ['ول نمیکنه', 'باز نمیشود'], ['آزاد نمیکنه', 'باز نمیشود'],
+  ['بریک', 'ترمز'], ['ول نمیکنه', 'ترمز باز نمیشود'], ['آزاد نمیکنه', 'ترمز باز نمیشود'],
+  ['آزاد نمیکند', 'ترمز باز نمیشود'], ['ول نمیکند', 'ترمز باز نمیشود'],
   ['میچسبه', 'جوش خوردگی کنتاکت'], ['می چسبه', 'جوش خوردگی کنتاکت'],
-  ['لولینگ', 'همسطح سازی'], ['لول', 'همسطح سازی'], ['تراز نمیشه', 'همسطح سازی'],
+  /* ZWNJ is stripped by normFa, so «همسطح‌سازی» tokenizes as «همسطحسازی».
+     Emit BOTH forms so slang canon matches curated titles either way. */
+  ['لولینگ', 'همسطح سازی همسطحسازی'], ['لول', 'همسطح سازی همسطحسازی'], ['تراز نمیشه', 'همسطح سازی همسطحسازی'],
   ['اورکارنت', 'OC اضافه جریان'], ['اور کارنت', 'OC اضافه جریان'], ['اوورکارنت', 'OC اضافه جریان'],
   ['اوروولتاژ', 'OV اضافه ولتاژ'], ['سری ه', 'مدار ایمنی'], ['مدار سریه', 'مدار ایمنی قطع'],
   ['سری قطعه', 'مدار ایمنی قطع'], ['فتوسل', 'پرده نوری فتوسل'], ['درایو', 'VVVF درایو'],
@@ -50,10 +53,18 @@ const SLANG = [
   ['ریزش داره', 'ریزش پایین آمدن تدریجی'], ['نشتی', 'نشت روغن'],
   ['قفل نمیکنه', 'قفل درب درگیر نمیشود'], ['درب نمیبنده', 'درب بسته نمیشود'],
   ['درب باز نمیشه', 'درب باز نمیشود'], ['برمیگرده', 'درب برگشت'],
+  /* formal (nun-dal) variants — users type «نمی‌کند» as often as «نمیکنه» */
+  ['قفل نمیکند', 'قفل درب درگیر نمیشود'], ['درگیر نمیکند', 'قفل درب درگیر نمیشود'],
+  ['حرکت نمیکنه', 'حرکت نمیکند'], ['باز نمیکنه', 'باز نمیشود'],
+  ['کار نمیکند', 'حرکت نمیکند'], ['روشن نمیشود', 'حرکت نمیکند برق'],
+  ['تراز نمیشود', 'همسطح سازی همسطحسازی'], ['کف نمیشود', 'همسطح سازی همسطحسازی'],
+  ['صدا میدهد', 'صدای غیرعادی'], ['داغ میکند', 'داغ شدن'],
+  ['ریزش دارد', 'ریزش پایین آمدن تدریجی'], ['نمیرود بالا', 'یک جهت بالا'],
+  ['نمیاید پایین', 'یک جهت پایین'],
   ['صدا میده', 'صدای غیرعادی'], ['تق تق', 'صدای غیرعادی'], ['ویبره', 'لرزش'],
   ['داغ میکنه', 'داغ شدن'], ['جوش میاره', 'داغ شدن'], ['آمپر میکشه', 'جریان بالا'],
   ['برد', 'برد الکترونیکی'], ['شستی', 'شستی احضار'], ['ارور', 'خطا'], ['فالت', 'خطا'],
-  ['کف نمیشه', 'همسطح سازی'], ['شفت', 'چاه'], ['موتورخونه', 'موتورخانه']
+  ['کف نمیشه', 'همسطح سازی همسطحسازی'], ['شفت', 'چاه'], ['موتورخونه', 'موتورخانه']
 ];
 function normFa(s) {
   return String(s || '')
@@ -63,7 +74,20 @@ function normFa(s) {
     .replace(/(^|\s)می\s+(?=[\u0600-\u06FF])/g, '$1می')
     .replace(/[ًٌٍَُِّْ]/g, '')
     .replace(/[۰-۹]/g, d => '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)])
+    /* punctuation → space, so «نمی‌کند،» tokenizes as «نمیکند» not «نمیکند،».
+       ':' is preserved because roping notation (1:1 / 2:1) is meaningful.
+       A '.' or ',' BETWEEN DIGITS is a decimal separator, not punctuation —
+       stripping it turned «0.5» into «0 5», which parsed as 0. */
+    .replace(/(?<=\d)[.,](?=\d)/g, '\u0000')     /* protect decimal separators */
+    .replace(/[،؛؟!.,?<>«»"'()\[\]{}\u2026\u2013\u2014]/g, ' ')
+    .replace(/\u0000/g, '.')                      /* restore as '.' */
+    .replace(/[-_/\\]/g, ' ')
     .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+/* word-boundary aware containment for Persian: prevents «کند» matching «نمیکند» */
+function hasWord(haystack, needle) {
+  if (!needle) return false;
+  return (' ' + haystack + ' ').includes(' ' + needle + ' ');
 }
 function expandSlang(q) {
   let out = q;
@@ -124,11 +148,21 @@ function detectIntent(q) {
 }
 
 /* ---------------- retrieval scoring ---------------- */
+/* Persian function words carry no retrieval signal but inflate scores
+   because they appear in almost every curated sentence. */
+const STOPWORDS = new Set(['از', 'که', 'را', 'به', 'با', 'در', 'هم', 'یا', 'این', 'آن', 'ها', 'های', 'است', 'هست', 'شده', 'آیا', 'بر', 'تا', 'یک', 'هر', 'ای', 'رو', 'وی', 'ما', 'شما', 'اگر', 'ولی', 'اما', 'باشد', 'دارد', 'کرد', 'شود', 'مي']);
+
+/* Token-aware match. Exact token → full weight; prefix match → half weight
+   (keeps «درب» ↔ «دربها» but stops «کند» matching «نمیکند»). */
 function scoreText(q, text) {
-  const words = q.split(' ').filter(w => w.length >= 2);
-  const t = normFa(text);
+  const words = [...new Set(q.split(' '))].filter(w => w.length >= 2 && !STOPWORDS.has(w));
+  const tokens = normFa(text).split(' ');
+  const tokenSet = new Set(tokens);
   let s = 0;
-  for (const w of words) if (t.includes(w)) s += w.length;
+  for (const w of words) {
+    if (tokenSet.has(w)) { s += w.length; continue; }
+    if (w.length >= 3 && tokens.some(t => t.length > w.length && t.startsWith(w))) s += w.length / 2;
+  }
   return s;
 }
 function kbSearchTextAI(k) {
@@ -143,6 +177,13 @@ function retrieveKB(q, n) {
     .filter(x => x.s >= 4).sort((a, b) => b.s - a.s).slice(0, n || 2);
 }
 function retrieveFlows(q, n) {
+  /* Installation type from this message, else from session memory (spec §26).
+     A hydraulic flow must not win for a traction lift just on word overlap. */
+  let type = null;
+  if (/هیدرولیک|پاوریونیت|جک |سیلندر|پمپ روغن/.test(q)) type = 'hydraulic';
+  else if (/کشش|گیرلس|گیربکس|وزنه تعادل|سیم بکسل|فلکه/.test(q)) type = 'traction';
+  else if (Memory.ctx.type) type = Memory.ctx.type;
+
   return DIAG_FLOWS.map(f => {
     /* symptom-title matches dominate; body matches only break ties */
     const titleScore = scoreText(q, f.symptom.fa + ' ' + (f.first ? f.first.fa : '')) * 4;
@@ -153,7 +194,11 @@ function retrieveFlows(q, n) {
       (nd.causes || []).forEach(c => body += ' ' + c.fa);
     });
     const bodyScore = Math.min(10, scoreText(q, body)); /* cap body influence */
-    return { f, s: titleScore + bodyScore };
+    let s = titleScore + bodyScore;
+    /* type steering: boost matching installation, demote the opposite one.
+       'both' flows are always neutral. */
+    if (type && f.type !== 'both') s = (f.type === type) ? s * 1.35 : s * 0.45;
+    return { f, s };
   }).filter(x => x.s >= 6).sort((a, b) => b.s - a.s).slice(0, n || 3);
 }
 function retrieveCalcs(q, n) {
@@ -208,6 +253,50 @@ function extractContext(q) {
   return found;
 }
 
+/* ---------------- curated HTML → chat plain text ----------------
+   Answers render inside a `white-space: pre-wrap` bubble, so the curated
+   HTML must become real lines. Tables need explicit cell separators —
+   without them every row collapses into «معیارکششیهیدرولیک». */
+function htmlToText(html) {
+  if (!html) return '';
+  let s = String(html);
+
+  /* table rows → one line per row, cells joined by a visible separator */
+  s = s.replace(/<tr[^>]*>([\s\S]*?)<\/tr>/gi, (_, row) => {
+    const cells = [];
+    row.replace(/<(t[hd])[^>]*>([\s\S]*?)<\/\1>/gi, (__, tag, cell) => {
+      cells.push(cell.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
+      return '';
+    });
+    if (!cells.length) return '';
+    const isHeader = /<th[\s>]/i.test(row);
+    return '\n' + (isHeader ? '' : '• ') + cells.filter(Boolean).join(' — ') + (isHeader ? '\n' + '─'.repeat(24) : '');
+  });
+  s = s.replace(/<\/?(table|thead|tbody)[^>]*>/gi, '\n');
+  /* rows are emitted one per line; collapse the blank lines the surrounding
+     markup leaves between them so the table reads as a compact block */
+
+
+  /* headings, list items, paragraphs, breaks */
+  s = s.replace(/<h[1-6][^>]*>/gi, '\n▪️ ').replace(/<\/h[1-6]>/gi, ':\n')
+       .replace(/<li[^>]*>/gi, '\n  • ').replace(/<\/li>/gi, '')
+       .replace(/<\/p>/gi, '\n').replace(/<br\s*\/?>/gi, '\n')
+       .replace(/<\/?(ul|ol)[^>]*>/gi, '\n');
+
+  /* strip anything left, decode the entities the curated content uses */
+  s = s.replace(/<[^>]+>/g, '')
+       .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+       .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+
+  /* tidy whitespace without destroying intentional blank lines */
+  s = s.split('\n').map(l => l.replace(/[ \t]+/g, ' ').trimEnd()).join('\n')
+       .replace(/\n{3,}/g, '\n\n');
+  /* keep grouped items tight: no blank line before a bullet or a table rule,
+     nor between a heading and the list it introduces */
+  s = s.replace(/\n\n(?=[ \t]*(?:•|─))/g, '\n');
+  return s.trim();
+}
+
 /* ---------------- confidence labels (spec §16, §43) ---------------- */
 const CONF = {
   curated: '📎 منبع: دانش فنی گردآوری‌شده Z Lift (کیفیت: متوسط — خلاصه آموزشی، نه سند رسمی)',
@@ -228,9 +317,35 @@ const LocalBrain = {
     const finished = this.tryFinishCalc(q, raw);
     if (finished) { finished.intent = 'calc'; finished.intent14 = 'CALCULATION'; finished.confBadge = '🟡 دانش گردآوری‌شده'; return finished; }
 
+    /* Follow-up to the alpha-angle prompt. It asks the user to reply «1:1» or
+       to send X and Y, but a bare «1:1» / «x=3 y=4» carries no topic word, so
+       without this it fell through to «منبع تأییدشده‌ای ندارم». */
+    if (this.pendingTopic === 'alpha' && !/آلفا|الفا|alpha/.test(q)) {
+      const isRoping = /^\s*(1:1|2:1|یک به یک|دو به یک|بله|اره|آره)\s*$/.test(q);
+      const hasXY = /x\s*=?\s*[\d.]+.{0,25}?y\s*=?\s*[\d.]+/.test(q);
+      if (isRoping || hasXY) {
+        this.pendingTopic = null;
+        const res = this.calcAnswer(q + ' آلفا', raw);
+        res.intent = 'calc'; res.intent14 = 'CALCULATION';
+        res.confBadge = '🟡 دانش گردآوری‌شده';
+        return res;
+      }
+    }
+
     let handler, intent14;
     if (mode && mode !== 'auto') { handler = mode; intent14 = mode.toUpperCase(); }
-    else { intent14 = detectIntent(q); handler = routeIntent(intent14, q); }
+    else {
+      intent14 = detectIntent(q);
+      handler = routeIntent(intent14, q);
+      /* Evidence-based rescue: keyword intent detection has no entry for every
+         symptom phrasing (e.g. «کند حرکت می‌کند»). If a diagnostic flow matches
+         the symptom title strongly, trust the retrieval over the keyword guess.
+         Only rescues learn/general — never overrides an explicit standard/calc/vvvf. */
+      if (handler === 'learn') {
+        const top = retrieveFlows(q, 1)[0];
+        if (top && top.s >= 60) { handler = 'diagnose'; intent14 = 'DIAGNOSTIC'; }
+      }
+    }
 
     let res;
     if (handler === 'standard') res = this.standardAnswer(q, raw);
@@ -307,6 +422,7 @@ const LocalBrain = {
 
   /* ---- in-chat calculator execution state ---- */
   pendingCalc: null,   /* { calId, inputs: {}, askedAt } */
+  pendingTopic: null,  /* 'alpha' — lets a bare follow-up («1:1», «x=3 y=4») continue that topic */
 
   startCalc(calId) {
     const cal = CALCULATORS.find(c => c.id === calId);
@@ -370,6 +486,24 @@ const LocalBrain = {
     if (/آلفا|الفا|زاویه پیچش|alpha/.test(q)) {
       const is21 = Memory.ctx.roping === '2:1' || q.includes('2:1');
       const is11 = Memory.ctx.roping === '1:1' || q.includes('1:1');
+      /* If the message already carries X and Y, run the calculation instead of
+         re-explaining the formula. Without this the numeric branch below is
+         unreachable — every alpha question returns from this block first, so
+         the app's own example «آلفا با X=55 و Y=30» never computed anything. */
+      const xyNow = q.match(/x\s*=?\s*([\d.]+).{0,25}?y\s*=?\s*([\d.]+)/);
+      if (xyNow && !is21) {
+        const x = parseFloat(xyNow[1]), y = parseFloat(xyNow[2]);
+        if (!(y > 0)) return { text: '⚠️ مقدار Y باید بزرگ‌تر از صفر باشد (فاصله عمودی دو مرکز).', actions: [], conf: 'curated' };
+        if (!(x >= 0)) return { text: '⚠️ مقدار X نمی‌تواند منفی باشد (فاصله افقی دو مرکز).', actions: [], conf: 'curated' };
+        const beta = Math.atan(x / y) * 180 / Math.PI;
+        const alpha = 180 - beta;
+        return {
+          text: '📐 نتیجه (کششی 1:1):\n\nX=' + x + ' ، Y=' + y + '\nβ = arctan(' + x + '/' + y + ') = ' + beta.toFixed(1) + '°\nα = 180 − β = ' + alpha.toFixed(1) + '°\n\n' +
+            '📌 فرضیات: رشته سمت کابین قائم فرض شده و از قطر فلکه‌ها صرف‌نظر شده است.\n\n' +
+            '⚠️ این یک محاسبه هندسی است، نه تأیید مهندسی. کفایت α برای قابلیت کشش باید طبق EN 81-50 / مدارک سازنده تأیید شود.\n' + CONF.curated,
+          actions: [], conf: 'curated'
+        };
+      }
       if (is21) {
         return {
           text: '📐 زاویه آلفا — هشدار مهم:\n\nمحاسبه‌گر آلفای موجود در این سامانه مخصوص سیستم «کششی 1:1» است.\n\nسیستم شما 2:1 اعلام شده — هندسه مسیر بکسل در 2:1 متفاوت است (فلکه‌های کابین و وزنه، مسیرهای اضافه) و فرمول 1:1 را نباید مستقیم به آن اعمال کرد.\n\nبرای 2:1 به نقشه هندسی پروژه و محاسبات کشش EN 81-50 (متن رسمی) مراجعه کنید.',
@@ -377,11 +511,15 @@ const LocalBrain = {
         };
       }
       if (!is11) {
+        this.pendingTopic = 'alpha';   /* accept a bare «1:1» / «x=.. y=..» next turn */
         return {
           text: '📐 زاویه آلفا (α):\n\nاول باید مطمئن شوم: سیستم شما «کششی 1:1» است؟\n\n(فرمول موجود فقط برای 1:1 معتبر است — در 2:1 هندسه فرق دارد.)\n\nاگر 1:1 است، بنویس «1:1» تا فرمول، ورودی‌ها و فرضیات را بدهم.',
           actions: [{ label: 'بله، سیستم 1:1 است', send: 'سیستم 1:1 است، زاویه آلفا را توضیح بده' }], conf: 'curated'
         };
       }
+      /* The formula reply explicitly invites «X و Y را همین‌جا بنویس», so keep
+         the topic open for a bare «x=55 y=30» on the next turn. */
+      this.pendingTopic = 'alpha';
       const cal = CALCULATORS.find(c => c.id === 'r2');
       return {
         text: '📐 زاویه آلفا (α) — کششی 1:1\n\n' +
@@ -507,7 +645,7 @@ const LocalBrain = {
       if (k.safety) L.push('\n⚠️ ایمنی: ' + k.safety);
       if (k.related) L.push('\n🔗 مرتبط: ' + k.related.join('، '));
     } else if (k.body && k.body.fa) {
-      L.push(k.body.fa.replace(/<h4>/g, '\n▪️ ').replace(/<\/h4>/g, ':').replace(/<li>/g, '\n  • ').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim());
+      L.push(htmlToText(k.body.fa));
     }
     if (hits[1]) L.push('\n📖 مبحث مرتبط دیگر: ' + hits[1].k.title.fa + ' (بپرس تا توضیح بدهم)');
     L.push('\n' + CONF.curated);
@@ -518,7 +656,7 @@ const LocalBrain = {
   safetyAnswer(q) {
     const k = KNOWLEDGE.find(x => x.id === 'k7');
     let body = '';
-    if (k && k.body) body = k.body.fa.replace(/<h4>/g, '\n▪️ ').replace(/<\/h4>/g, ':').replace(/<li>/g, '\n  • ').replace(/<[^>]+>/g, '').trim();
+    if (k && k.body) body = htmlToText(k.body.fa);
     return {
       text: '⚠️ ایمنی کار تکنسین آسانسور:\n\n' + body + '\n\n⛔ قاعده مطلق: مدار ایمنی، قفل درب، گاورنر، پاراشوت و لیمیت‌ها هرگز به‌عنوان روش تعمیر بای‌پس نمی‌شوند.\n' + CONF.curated,
       actions: [], conf: 'curated'

@@ -125,12 +125,36 @@ const ArenaProvider = {
       }
     }
 
-    const intent = detectIntent(expandSlang(normFa(raw)));
+    const qn = expandSlang(normFa(raw));
+    const intent = detectIntent(qn);
+    const route = routeIntent(intent, qn);
+
+    /* Keep the interactive diagnostic tree alive on the cloud path.
+       The model supplies the prose, but the step buttons + decision graph are
+       local and deterministic — without this, enabling the API silently
+       downgrades diagnosis from a guided flow to a wall of text. */
+    let actions = [];
+    let diagActive;
+    if (route === 'diagnose') {
+      const top = retrieveFlows(qn, 2);
+      if (top.length) {
+        const f = top[0].f;
+        const start = f.nodes[f.start];
+        if (start && start.opts) {
+          actions = start.opts.map(o => ({ label: o.l.fa, diagStep: { flowId: f.id, nodeId: o.n } }));
+          if (top[1]) actions.push({ label: '🔄 علامت من بیشتر شبیه «' + top[1].f.symptom.fa + '» است', diagStep: { flowId: top[1].f.id, nodeId: top[1].f.start } });
+          diagActive = { flowId: f.id, nodeId: f.start };
+          text += '\n\n👇 برای عیب‌یابی قدم‌به‌قدم، نتیجه بررسی‌ات را انتخاب کن:';
+        }
+      }
+    }
+
     return {
       text,
-      actions: [],
+      actions,
+      diagActive,
       conf: 'curated',
-      intent: routeIntent(intent, expandSlang(normFa(raw))),
+      intent: route,
       intent14: intent,
       providerUsed: 'arena',
       confBadge: '🟢 Arena + دانش Z Lift',
