@@ -249,6 +249,50 @@ function extractContext(q) {
   return found;
 }
 
+/* ---------------- curated HTML → chat plain text ----------------
+   Answers render inside a `white-space: pre-wrap` bubble, so the curated
+   HTML must become real lines. Tables need explicit cell separators —
+   without them every row collapses into «معیارکششیهیدرولیک». */
+function htmlToText(html) {
+  if (!html) return '';
+  let s = String(html);
+
+  /* table rows → one line per row, cells joined by a visible separator */
+  s = s.replace(/<tr[^>]*>([\s\S]*?)<\/tr>/gi, (_, row) => {
+    const cells = [];
+    row.replace(/<(t[hd])[^>]*>([\s\S]*?)<\/\1>/gi, (__, tag, cell) => {
+      cells.push(cell.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
+      return '';
+    });
+    if (!cells.length) return '';
+    const isHeader = /<th[\s>]/i.test(row);
+    return '\n' + (isHeader ? '' : '• ') + cells.filter(Boolean).join(' — ') + (isHeader ? '\n' + '─'.repeat(24) : '');
+  });
+  s = s.replace(/<\/?(table|thead|tbody)[^>]*>/gi, '\n');
+  /* rows are emitted one per line; collapse the blank lines the surrounding
+     markup leaves between them so the table reads as a compact block */
+
+
+  /* headings, list items, paragraphs, breaks */
+  s = s.replace(/<h[1-6][^>]*>/gi, '\n▪️ ').replace(/<\/h[1-6]>/gi, ':\n')
+       .replace(/<li[^>]*>/gi, '\n  • ').replace(/<\/li>/gi, '')
+       .replace(/<\/p>/gi, '\n').replace(/<br\s*\/?>/gi, '\n')
+       .replace(/<\/?(ul|ol)[^>]*>/gi, '\n');
+
+  /* strip anything left, decode the entities the curated content uses */
+  s = s.replace(/<[^>]+>/g, '')
+       .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+       .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+
+  /* tidy whitespace without destroying intentional blank lines */
+  s = s.split('\n').map(l => l.replace(/[ \t]+/g, ' ').trimEnd()).join('\n')
+       .replace(/\n{3,}/g, '\n\n');
+  /* keep grouped items tight: no blank line before a bullet or a table rule,
+     nor between a heading and the list it introduces */
+  s = s.replace(/\n\n(?=[ \t]*(?:•|─))/g, '\n');
+  return s.trim();
+}
+
 /* ---------------- confidence labels (spec §16, §43) ---------------- */
 const CONF = {
   curated: '📎 منبع: دانش فنی گردآوری‌شده Z Lift (کیفیت: متوسط — خلاصه آموزشی، نه سند رسمی)',
@@ -559,7 +603,7 @@ const LocalBrain = {
       if (k.safety) L.push('\n⚠️ ایمنی: ' + k.safety);
       if (k.related) L.push('\n🔗 مرتبط: ' + k.related.join('، '));
     } else if (k.body && k.body.fa) {
-      L.push(k.body.fa.replace(/<h4>/g, '\n▪️ ').replace(/<\/h4>/g, ':').replace(/<li>/g, '\n  • ').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim());
+      L.push(htmlToText(k.body.fa));
     }
     if (hits[1]) L.push('\n📖 مبحث مرتبط دیگر: ' + hits[1].k.title.fa + ' (بپرس تا توضیح بدهم)');
     L.push('\n' + CONF.curated);
@@ -570,7 +614,7 @@ const LocalBrain = {
   safetyAnswer(q) {
     const k = KNOWLEDGE.find(x => x.id === 'k7');
     let body = '';
-    if (k && k.body) body = k.body.fa.replace(/<h4>/g, '\n▪️ ').replace(/<\/h4>/g, ':').replace(/<li>/g, '\n  • ').replace(/<[^>]+>/g, '').trim();
+    if (k && k.body) body = htmlToText(k.body.fa);
     return {
       text: '⚠️ ایمنی کار تکنسین آسانسور:\n\n' + body + '\n\n⛔ قاعده مطلق: مدار ایمنی، قفل درب، گاورنر، پاراشوت و لیمیت‌ها هرگز به‌عنوان روش تعمیر بای‌پس نمی‌شوند.\n' + CONF.curated,
       actions: [], conf: 'curated'

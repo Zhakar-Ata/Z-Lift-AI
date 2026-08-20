@@ -283,6 +283,40 @@ const head = res => String(res.text || '').split('\n')[0].trim();
     eq(viaProvider.intent, 'diagnose', 'intent through provider');
   });
 
+  /* ========== curated HTML → chat text ========== */
+  group('تبدیل HTML به متن چت');
+
+  check('table rows are separated, not glued together', () => {
+    const a = loadEngine();
+    const k = a.KNOWLEDGE.find(x => x.id === 'k8');
+    ok(k, 'article k8 (traction vs hydraulic) missing');
+    const out = a.LocalBrain.learnAnswer(a.normFa('انتخاب کششی یا هیدرولیک'), 'انتخاب کششی یا هیدرولیک').text;
+    ok(!out.includes('معیارکششیهیدرولیک'), 'table header cells are glued: found «معیارکششیهیدرولیک»');
+    ok(!out.includes('طبقات مناسببدون'), 'table body cells are glued');
+    ok(out.includes('معیار — کششی — هیدرولیک'), 'header row not rendered with separators');
+  });
+  check('no curated article leaks raw HTML tags into chat text', () => {
+    const a = loadEngine();
+    for (const k of a.KNOWLEDGE) {
+      if (!k.body || !k.body.fa) continue;
+      const out = a.LocalBrain.learnAnswer(a.normFa(k.title.fa), k.title.fa).text;
+      ok(!/<(table|tr|td|th|ul|li|h[1-6]|p|br)[\s/>]/i.test(out), 'raw HTML tag survived in ' + k.id);
+      ok(!/&(nbsp|amp|lt|gt|quot);/.test(out), 'undecoded HTML entity in ' + k.id);
+    }
+  });
+  check('safety answer renders its lists as bullets', () => {
+    const a = loadEngine();
+    const out = a.LocalBrain.safetyAnswer(a.normFa('نکات ایمنی')).text;
+    ok(out.includes('•'), 'no bullets rendered');
+    ok(!/<li>|<h4>/i.test(out), 'raw list markup survived');
+    ok(!/\n{3,}/.test(out), 'excessive blank lines in safety answer');
+  });
+  check('headings stay attached to the list they introduce', () => {
+    const a = loadEngine();
+    const out = a.LocalBrain.safetyAnswer(a.normFa('نکات ایمنی')).text;
+    ok(!/:\n\n[ \t]*•/.test(out), 'blank line between a heading and its first bullet');
+  });
+
   /* ========== cloud (Arena) provider path ========== */
   group('مسیر ابری Arena');
 
