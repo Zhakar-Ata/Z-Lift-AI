@@ -1,5 +1,5 @@
 /* Z Lift AI — service worker (offline-first shell) */
-const CACHE = 'zliftai-v3';
+const CACHE = 'zliftai-v4';
 const CORE = ['./', './index.html', './brain.js', './standards.js', './engine.js', './knowledge.js', './arena.js', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('message', e => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); });
 self.addEventListener('install', e => {

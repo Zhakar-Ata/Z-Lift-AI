@@ -37,9 +37,12 @@ const SLANG = [
   // [pattern (normalized persian), canonical concept tokens]
   ['راه نمیفته', 'حرکت نمیکند'], ['راه نمی افته', 'حرکت نمیکند'], ['روشن نمیشه', 'حرکت نمیکند برق'],
   ['کار نمیکنه', 'حرکت نمیکند'], ['نمیره بالا', 'یک جهت بالا'], ['نمیاد پایین', 'یک جهت پایین'],
-  ['بریک', 'ترمز'], ['ول نمیکنه', 'باز نمیشود'], ['آزاد نمیکنه', 'باز نمیشود'],
+  ['بریک', 'ترمز'], ['ول نمیکنه', 'ترمز باز نمیشود'], ['آزاد نمیکنه', 'ترمز باز نمیشود'],
+  ['آزاد نمیکند', 'ترمز باز نمیشود'], ['ول نمیکند', 'ترمز باز نمیشود'],
   ['میچسبه', 'جوش خوردگی کنتاکت'], ['می چسبه', 'جوش خوردگی کنتاکت'],
-  ['لولینگ', 'همسطح سازی'], ['لول', 'همسطح سازی'], ['تراز نمیشه', 'همسطح سازی'],
+  /* ZWNJ is stripped by normFa, so «همسطح‌سازی» tokenizes as «همسطحسازی».
+     Emit BOTH forms so slang canon matches curated titles either way. */
+  ['لولینگ', 'همسطح سازی همسطحسازی'], ['لول', 'همسطح سازی همسطحسازی'], ['تراز نمیشه', 'همسطح سازی همسطحسازی'],
   ['اورکارنت', 'OC اضافه جریان'], ['اور کارنت', 'OC اضافه جریان'], ['اوورکارنت', 'OC اضافه جریان'],
   ['اوروولتاژ', 'OV اضافه ولتاژ'], ['سری ه', 'مدار ایمنی'], ['مدار سریه', 'مدار ایمنی قطع'],
   ['سری قطعه', 'مدار ایمنی قطع'], ['فتوسل', 'پرده نوری فتوسل'], ['درایو', 'VVVF درایو'],
@@ -50,10 +53,18 @@ const SLANG = [
   ['ریزش داره', 'ریزش پایین آمدن تدریجی'], ['نشتی', 'نشت روغن'],
   ['قفل نمیکنه', 'قفل درب درگیر نمیشود'], ['درب نمیبنده', 'درب بسته نمیشود'],
   ['درب باز نمیشه', 'درب باز نمیشود'], ['برمیگرده', 'درب برگشت'],
+  /* formal (nun-dal) variants — users type «نمی‌کند» as often as «نمیکنه» */
+  ['قفل نمیکند', 'قفل درب درگیر نمیشود'], ['درگیر نمیکند', 'قفل درب درگیر نمیشود'],
+  ['حرکت نمیکنه', 'حرکت نمیکند'], ['باز نمیکنه', 'باز نمیشود'],
+  ['کار نمیکند', 'حرکت نمیکند'], ['روشن نمیشود', 'حرکت نمیکند برق'],
+  ['تراز نمیشود', 'همسطح سازی همسطحسازی'], ['کف نمیشود', 'همسطح سازی همسطحسازی'],
+  ['صدا میدهد', 'صدای غیرعادی'], ['داغ میکند', 'داغ شدن'],
+  ['ریزش دارد', 'ریزش پایین آمدن تدریجی'], ['نمیرود بالا', 'یک جهت بالا'],
+  ['نمیاید پایین', 'یک جهت پایین'],
   ['صدا میده', 'صدای غیرعادی'], ['تق تق', 'صدای غیرعادی'], ['ویبره', 'لرزش'],
   ['داغ میکنه', 'داغ شدن'], ['جوش میاره', 'داغ شدن'], ['آمپر میکشه', 'جریان بالا'],
   ['برد', 'برد الکترونیکی'], ['شستی', 'شستی احضار'], ['ارور', 'خطا'], ['فالت', 'خطا'],
-  ['کف نمیشه', 'همسطح سازی'], ['شفت', 'چاه'], ['موتورخونه', 'موتورخانه']
+  ['کف نمیشه', 'همسطح سازی همسطحسازی'], ['شفت', 'چاه'], ['موتورخونه', 'موتورخانه']
 ];
 function normFa(s) {
   return String(s || '')
@@ -63,7 +74,16 @@ function normFa(s) {
     .replace(/(^|\s)می\s+(?=[\u0600-\u06FF])/g, '$1می')
     .replace(/[ًٌٍَُِّْ]/g, '')
     .replace(/[۰-۹]/g, d => '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)])
+    /* punctuation → space, so «نمی‌کند،» tokenizes as «نمیکند» not «نمیکند،».
+       ':' is preserved because roping notation (1:1 / 2:1) is meaningful. */
+    .replace(/[،؛؟!.,?<>«»"'()\[\]{}\u2026\u2013\u2014]/g, ' ')
+    .replace(/[-_/\\]/g, ' ')
     .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+/* word-boundary aware containment for Persian: prevents «کند» matching «نمیکند» */
+function hasWord(haystack, needle) {
+  if (!needle) return false;
+  return (' ' + haystack + ' ').includes(' ' + needle + ' ');
 }
 function expandSlang(q) {
   let out = q;
@@ -124,11 +144,21 @@ function detectIntent(q) {
 }
 
 /* ---------------- retrieval scoring ---------------- */
+/* Persian function words carry no retrieval signal but inflate scores
+   because they appear in almost every curated sentence. */
+const STOPWORDS = new Set(['از', 'که', 'را', 'به', 'با', 'در', 'هم', 'یا', 'این', 'آن', 'ها', 'های', 'است', 'هست', 'شده', 'آیا', 'بر', 'تا', 'یک', 'هر', 'ای', 'رو', 'وی', 'ما', 'شما', 'اگر', 'ولی', 'اما', 'باشد', 'دارد', 'کرد', 'شود', 'مي']);
+
+/* Token-aware match. Exact token → full weight; prefix match → half weight
+   (keeps «درب» ↔ «دربها» but stops «کند» matching «نمیکند»). */
 function scoreText(q, text) {
-  const words = q.split(' ').filter(w => w.length >= 2);
-  const t = normFa(text);
+  const words = [...new Set(q.split(' '))].filter(w => w.length >= 2 && !STOPWORDS.has(w));
+  const tokens = normFa(text).split(' ');
+  const tokenSet = new Set(tokens);
   let s = 0;
-  for (const w of words) if (t.includes(w)) s += w.length;
+  for (const w of words) {
+    if (tokenSet.has(w)) { s += w.length; continue; }
+    if (w.length >= 3 && tokens.some(t => t.length > w.length && t.startsWith(w))) s += w.length / 2;
+  }
   return s;
 }
 function kbSearchTextAI(k) {
@@ -143,6 +173,13 @@ function retrieveKB(q, n) {
     .filter(x => x.s >= 4).sort((a, b) => b.s - a.s).slice(0, n || 2);
 }
 function retrieveFlows(q, n) {
+  /* Installation type from this message, else from session memory (spec §26).
+     A hydraulic flow must not win for a traction lift just on word overlap. */
+  let type = null;
+  if (/هیدرولیک|پاوریونیت|جک |سیلندر|پمپ روغن/.test(q)) type = 'hydraulic';
+  else if (/کشش|گیرلس|گیربکس|وزنه تعادل|سیم بکسل|فلکه/.test(q)) type = 'traction';
+  else if (Memory.ctx.type) type = Memory.ctx.type;
+
   return DIAG_FLOWS.map(f => {
     /* symptom-title matches dominate; body matches only break ties */
     const titleScore = scoreText(q, f.symptom.fa + ' ' + (f.first ? f.first.fa : '')) * 4;
@@ -153,7 +190,11 @@ function retrieveFlows(q, n) {
       (nd.causes || []).forEach(c => body += ' ' + c.fa);
     });
     const bodyScore = Math.min(10, scoreText(q, body)); /* cap body influence */
-    return { f, s: titleScore + bodyScore };
+    let s = titleScore + bodyScore;
+    /* type steering: boost matching installation, demote the opposite one.
+       'both' flows are always neutral. */
+    if (type && f.type !== 'both') s = (f.type === type) ? s * 1.35 : s * 0.45;
+    return { f, s };
   }).filter(x => x.s >= 6).sort((a, b) => b.s - a.s).slice(0, n || 3);
 }
 function retrieveCalcs(q, n) {
@@ -230,7 +271,18 @@ const LocalBrain = {
 
     let handler, intent14;
     if (mode && mode !== 'auto') { handler = mode; intent14 = mode.toUpperCase(); }
-    else { intent14 = detectIntent(q); handler = routeIntent(intent14, q); }
+    else {
+      intent14 = detectIntent(q);
+      handler = routeIntent(intent14, q);
+      /* Evidence-based rescue: keyword intent detection has no entry for every
+         symptom phrasing (e.g. «کند حرکت می‌کند»). If a diagnostic flow matches
+         the symptom title strongly, trust the retrieval over the keyword guess.
+         Only rescues learn/general — never overrides an explicit standard/calc/vvvf. */
+      if (handler === 'learn') {
+        const top = retrieveFlows(q, 1)[0];
+        if (top && top.s >= 60) { handler = 'diagnose'; intent14 = 'DIAGNOSTIC'; }
+      }
+    }
 
     let res;
     if (handler === 'standard') res = this.standardAnswer(q, raw);
