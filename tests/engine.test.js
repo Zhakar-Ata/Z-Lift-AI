@@ -283,6 +283,87 @@ const head = res => String(res.text || '').split('\n')[0].trim();
     eq(viaProvider.intent, 'diagnose', 'intent through provider');
   });
 
+  /* ========== cloud (Arena) provider path ========== */
+  group('مسیر ابری Arena');
+
+  /* Sandbox with a configured endpoint and a stubbed successful cloud reply. */
+  function loadCloud(reply, opts) {
+    opts = opts || {};
+    const store = { zliftai_provider_cfg: JSON.stringify({ endpoint: 'https://example.test/v1/chat/completions', model: 'test' }) };
+    const calls = [];
+    const ctx = {
+      console, setTimeout, clearTimeout, Date, Math, JSON, AbortController,
+      navigator: { onLine: true },
+      location: { origin: 'http://localhost' },
+      localStorage: {
+        getItem: k => (k in store ? store[k] : null),
+        setItem: (k, v) => { store[k] = String(v); },
+        removeItem: k => { delete store[k]; }
+      },
+      fetch: async (url, init) => {
+        calls.push(JSON.parse(init.body));
+        if (opts.fail) throw new Error('network down');
+        return { ok: true, json: async () => ({ choices: [{ message: { content: reply } }] }) };
+      }
+    };
+    ctx.window = ctx; ctx.self = ctx;
+    vm.createContext(ctx);
+    vm.runInContext(SOURCE + '\n;window.__api={ArenaProvider,AIProviders,pickProvider,LocalBrain,ResponseValidator,ZLiftKnowledgeEngine};', ctx, { filename: 'cloud.js' });
+    return { api: ctx.__api, calls };
+  }
+
+  await checkAsync('a configured endpoint selects the Arena provider', async () => {
+    const { api } = loadCloud('پاسخ.');
+    eq(api.pickProvider().id, 'arena', 'provider');
+  });
+  await checkAsync('cloud diagnosis keeps the interactive step buttons', async () => {
+    const { api } = loadCloud('توضیح مدل ابری درباره عدم حرکت.');
+    const r = await api.ArenaProvider.answer('آسانسور حرکت نمی‌کند، از کجا شروع کنم؟', 'auto');
+    eq(r.intent, 'diagnose', 'intent');
+    ok(r.actions.length >= 2, 'cloud path lost the diagnostic buttons (got ' + r.actions.length + ')');
+    ok(r.diagActive && r.diagActive.flowId, 'cloud path lost diagActive state');
+    ok(r.actions.every(a => a.diagStep && a.diagStep.flowId && a.diagStep.nodeId), 'malformed diagStep in cloud actions');
+  });
+  await checkAsync('cloud buttons drive the same local deterministic flow', async () => {
+    const { api } = loadCloud('توضیح مدل ابری.');
+    const r = await api.ArenaProvider.answer('آسانسور حرکت نمی‌کند، از کجا شروع کنم؟', 'auto');
+    const step = r.actions[0].diagStep;
+    const next = api.LocalBrain.diagStep(step.flowId, step.nodeId);
+    ok(next.text && next.text.length > 20, 'stepping a cloud-provided button returned nothing');
+  });
+  await checkAsync('calculations never leave the device', async () => {
+    const { api, calls } = loadCloud('نباید استفاده شود.');
+    const r = await api.ArenaProvider.answer('زاویه آلفا برای سیستم 1:1 چطوری حساب میشه؟', 'auto');
+    eq(calls.length, 0, 'a calculation was sent to the cloud');
+    eq(r.providerUsed, 'local-deterministic', 'providerUsed');
+  });
+  await checkAsync('cloud failure falls back to the local brain', async () => {
+    const { api } = loadCloud('unused', { fail: true });
+    const r = await api.ArenaProvider.answer('آسانسور حرکت نمی‌کند', 'auto');
+    eq(r.providerUsed, 'local', 'should fall back locally');
+    ok(r.text && r.text.length > 20, 'fallback produced no answer');
+  });
+  await checkAsync('retrieved knowledge is sent as data, not instructions', async () => {
+    const { api, calls } = loadCloud('پاسخ.');
+    await api.ArenaProvider.answer('مدار ایمنی چیست؟', 'auto');
+    ok(calls.length === 1, 'expected exactly one cloud call');
+    const userMsg = calls[0].messages.find(m => m.role === 'user').content;
+    ok(userMsg.includes('KNOWLEDGE>>>'), 'knowledge not delimited as data');
+    ok(calls[0].messages[0].role === 'system', 'missing system prompt');
+  });
+  await checkAsync('validator flags an invented clause number', async () => {
+    const { api } = loadCloud('طبق بند 9.9.9 این کار مجاز است.');
+    const pkg = api.ZLiftKnowledgeEngine.buildContextPackage('مدار ایمنی');
+    const v = api.ResponseValidator.validate('طبق بند 9.9.9 مجاز است.', pkg);
+    eq(v.ok, false, 'fabricated clause passed validation');
+  });
+  await checkAsync('validator blocks safety-circuit bypass advice', async () => {
+    const { api } = loadCloud('x');
+    const pkg = api.ZLiftKnowledgeEngine.buildContextPackage('مدار ایمنی');
+    const v = api.ResponseValidator.validate('مدار ایمنی را پل کن تا حرکت کند.', pkg);
+    eq(v.ok, false, 'unsafe bypass advice passed validation');
+  });
+
   /* ---------------- summary ---------------- */
   const total = passed + failed;
   process.stdout.write('\n' + '─'.repeat(52) + '\n');
