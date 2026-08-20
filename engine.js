@@ -75,8 +75,12 @@ function normFa(s) {
     .replace(/[ًٌٍَُِّْ]/g, '')
     .replace(/[۰-۹]/g, d => '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)])
     /* punctuation → space, so «نمی‌کند،» tokenizes as «نمیکند» not «نمیکند،».
-       ':' is preserved because roping notation (1:1 / 2:1) is meaningful. */
+       ':' is preserved because roping notation (1:1 / 2:1) is meaningful.
+       A '.' or ',' BETWEEN DIGITS is a decimal separator, not punctuation —
+       stripping it turned «0.5» into «0 5», which parsed as 0. */
+    .replace(/(?<=\d)[.,](?=\d)/g, '\u0000')     /* protect decimal separators */
     .replace(/[،؛؟!.,?<>«»"'()\[\]{}\u2026\u2013\u2014]/g, ' ')
+    .replace(/\u0000/g, '.')                      /* restore as '.' */
     .replace(/[-_/\\]/g, ' ')
     .toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -313,6 +317,21 @@ const LocalBrain = {
     const finished = this.tryFinishCalc(q, raw);
     if (finished) { finished.intent = 'calc'; finished.intent14 = 'CALCULATION'; finished.confBadge = '🟡 دانش گردآوری‌شده'; return finished; }
 
+    /* Follow-up to the alpha-angle prompt. It asks the user to reply «1:1» or
+       to send X and Y, but a bare «1:1» / «x=3 y=4» carries no topic word, so
+       without this it fell through to «منبع تأییدشده‌ای ندارم». */
+    if (this.pendingTopic === 'alpha' && !/آلفا|الفا|alpha/.test(q)) {
+      const isRoping = /^\s*(1:1|2:1|یک به یک|دو به یک|بله|اره|آره)\s*$/.test(q);
+      const hasXY = /x\s*=?\s*[\d.]+.{0,25}?y\s*=?\s*[\d.]+/.test(q);
+      if (isRoping || hasXY) {
+        this.pendingTopic = null;
+        const res = this.calcAnswer(q + ' آلفا', raw);
+        res.intent = 'calc'; res.intent14 = 'CALCULATION';
+        res.confBadge = '🟡 دانش گردآوری‌شده';
+        return res;
+      }
+    }
+
     let handler, intent14;
     if (mode && mode !== 'auto') { handler = mode; intent14 = mode.toUpperCase(); }
     else {
@@ -403,6 +422,7 @@ const LocalBrain = {
 
   /* ---- in-chat calculator execution state ---- */
   pendingCalc: null,   /* { calId, inputs: {}, askedAt } */
+  pendingTopic: null,  /* 'alpha' — lets a bare follow-up («1:1», «x=3 y=4») continue that topic */
 
   startCalc(calId) {
     const cal = CALCULATORS.find(c => c.id === calId);
@@ -466,6 +486,24 @@ const LocalBrain = {
     if (/آلفا|الفا|زاویه پیچش|alpha/.test(q)) {
       const is21 = Memory.ctx.roping === '2:1' || q.includes('2:1');
       const is11 = Memory.ctx.roping === '1:1' || q.includes('1:1');
+      /* If the message already carries X and Y, run the calculation instead of
+         re-explaining the formula. Without this the numeric branch below is
+         unreachable — every alpha question returns from this block first, so
+         the app's own example «آلفا با X=55 و Y=30» never computed anything. */
+      const xyNow = q.match(/x\s*=?\s*([\d.]+).{0,25}?y\s*=?\s*([\d.]+)/);
+      if (xyNow && !is21) {
+        const x = parseFloat(xyNow[1]), y = parseFloat(xyNow[2]);
+        if (!(y > 0)) return { text: '⚠️ مقدار Y باید بزرگ‌تر از صفر باشد (فاصله عمودی دو مرکز).', actions: [], conf: 'curated' };
+        if (!(x >= 0)) return { text: '⚠️ مقدار X نمی‌تواند منفی باشد (فاصله افقی دو مرکز).', actions: [], conf: 'curated' };
+        const beta = Math.atan(x / y) * 180 / Math.PI;
+        const alpha = 180 - beta;
+        return {
+          text: '📐 نتیجه (کششی 1:1):\n\nX=' + x + ' ، Y=' + y + '\nβ = arctan(' + x + '/' + y + ') = ' + beta.toFixed(1) + '°\nα = 180 − β = ' + alpha.toFixed(1) + '°\n\n' +
+            '📌 فرضیات: رشته سمت کابین قائم فرض شده و از قطر فلکه‌ها صرف‌نظر شده است.\n\n' +
+            '⚠️ این یک محاسبه هندسی است، نه تأیید مهندسی. کفایت α برای قابلیت کشش باید طبق EN 81-50 / مدارک سازنده تأیید شود.\n' + CONF.curated,
+          actions: [], conf: 'curated'
+        };
+      }
       if (is21) {
         return {
           text: '📐 زاویه آلفا — هشدار مهم:\n\nمحاسبه‌گر آلفای موجود در این سامانه مخصوص سیستم «کششی 1:1» است.\n\nسیستم شما 2:1 اعلام شده — هندسه مسیر بکسل در 2:1 متفاوت است (فلکه‌های کابین و وزنه، مسیرهای اضافه) و فرمول 1:1 را نباید مستقیم به آن اعمال کرد.\n\nبرای 2:1 به نقشه هندسی پروژه و محاسبات کشش EN 81-50 (متن رسمی) مراجعه کنید.',
@@ -473,11 +511,15 @@ const LocalBrain = {
         };
       }
       if (!is11) {
+        this.pendingTopic = 'alpha';   /* accept a bare «1:1» / «x=.. y=..» next turn */
         return {
           text: '📐 زاویه آلفا (α):\n\nاول باید مطمئن شوم: سیستم شما «کششی 1:1» است؟\n\n(فرمول موجود فقط برای 1:1 معتبر است — در 2:1 هندسه فرق دارد.)\n\nاگر 1:1 است، بنویس «1:1» تا فرمول، ورودی‌ها و فرضیات را بدهم.',
           actions: [{ label: 'بله، سیستم 1:1 است', send: 'سیستم 1:1 است، زاویه آلفا را توضیح بده' }], conf: 'curated'
         };
       }
+      /* The formula reply explicitly invites «X و Y را همین‌جا بنویس», so keep
+         the topic open for a bare «x=55 y=30» on the next turn. */
+      this.pendingTopic = 'alpha';
       const cal = CALCULATORS.find(c => c.id === 'r2');
       return {
         text: '📐 زاویه آلفا (α) — کششی 1:1\n\n' +

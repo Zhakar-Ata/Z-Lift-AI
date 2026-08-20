@@ -317,6 +317,66 @@ const head = res => String(res.text || '').split('\n')[0].trim();
     ok(!/:\n\n[ \t]*•/.test(out), 'blank line between a heading and its first bullet');
   });
 
+  /* ========== alpha-angle conversation ========== */
+  group('گفتگوی زاویه آلفا');
+
+  await checkAsync('the documented example «آلفا با X=55 و Y=30» actually computes', async () => {
+    const r = await loadEngine().LocalBrain.answer('آلفا با X=55 و Y=30', 'auto');
+    const beta = Math.atan(55 / 30) * 180 / Math.PI;
+    ok(r.text.includes(beta.toFixed(1)), 'β not computed; got: ' + r.text.split('\n')[0]);
+    ok(r.text.includes((180 - beta).toFixed(1)), 'α not computed');
+  });
+  await checkAsync('replying a bare «1:1» continues the alpha conversation', async () => {
+    const a = loadEngine();
+    await a.LocalBrain.answer('زاویه آلفا چطور حساب میشه؟', 'auto');
+    const r = await a.LocalBrain.answer('1:1', 'auto');
+    ok(/arctan|فرمول/.test(r.text), 'bare «1:1» dead-ended: ' + r.text.split('\n')[0]);
+  });
+  await checkAsync('bare «x=.. y=..» after the formula computes the angle', async () => {
+    const a = loadEngine();
+    await a.LocalBrain.answer('زاویه آلفا', 'auto');
+    await a.LocalBrain.answer('سیستم 1:1 است، زاویه آلفا را توضیح بده', 'auto');
+    const r = await a.LocalBrain.answer('x=3 y=4', 'auto');
+    ok(r.text.includes('143.1'), 'bare X/Y did not compute: ' + r.text.split('\n')[0]);
+  });
+  await checkAsync('a 2:1 system is still refused, never computed', async () => {
+    const r = await loadEngine().LocalBrain.answer('زاویه آلفا برای سیستم 2:1 با x=3 y=4', 'auto');
+    ok(!r.text.includes('143.1'), 'computed an alpha angle for a 2:1 system — unsafe');
+    ok(/2:1/.test(r.text), 'no 2:1 warning shown');
+  });
+  await checkAsync('an unrelated question is not hijacked by the pending topic', async () => {
+    const a = loadEngine();
+    await a.LocalBrain.answer('زاویه آلفا', 'auto');
+    eq((await a.LocalBrain.answer('آسانسور حرکت نمی‌کند', 'auto')).intent, 'diagnose', 'diagnosis hijacked');
+    eq((await a.LocalBrain.answer('درایو خطای OC می‌دهد', 'auto')).intent, 'vvvf', 'drive question hijacked');
+  });
+  await checkAsync('a bare «1:1» with no alpha context does not invent an answer', async () => {
+    const r = await loadEngine().LocalBrain.answer('1:1', 'auto');
+    ok(!/زاویه آلفا/.test(r.text), 'alpha answer produced without the user asking');
+  });
+  await checkAsync('Y=0 is rejected instead of returning Infinity', async () => {
+    const r = await loadEngine().LocalBrain.answer('آلفا با x=3 y=0', 'auto');
+    ok(!/Infinity|NaN/.test(r.text), 'Infinity/NaN leaked to the user');
+    ok(r.text.includes('⚠️'), 'no warning shown for Y=0');
+  });
+
+  /* ========== decimal handling (regression) ========== */
+  group('اعداد اعشاری');
+  check('a decimal point between digits survives normalization', () => {
+    const a = loadEngine();
+    eq(a.normFa('x=0.5 y=0.25'), 'x=0.5 y=0.25', 'decimal separator destroyed');
+    eq(a.normFa('سرعت 1.5 متر'), 'سرعت 1.5 متر', 'decimal in Persian text destroyed');
+  });
+  check('sentence punctuation is still stripped', () => {
+    const a = loadEngine();
+    eq(a.normFa('آسانسور حرکت نمی‌کند، از کجا؟'), 'آسانسور حرکت نمیکند از کجا');
+  });
+  await checkAsync('a decimal alpha calculation is correct', async () => {
+    const r = await loadEngine().LocalBrain.answer('آلفا با x=0.5 y=0.25', 'auto');
+    const beta = Math.atan(2) * 180 / Math.PI;
+    ok(r.text.includes(beta.toFixed(1)), 'decimal inputs mis-parsed; got: ' + r.text.split('\n')[0]);
+  });
+
   /* ========== cloud (Arena) provider path ========== */
   group('مسیر ابری Arena');
 
