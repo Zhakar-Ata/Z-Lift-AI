@@ -151,7 +151,8 @@ async function send(text) {
   Memory.history.push({ role: 'user', text: raw, ts: Date.now() });
   showTyping();
   try {
-    const res = await activeProvider.answer(raw, currentMode);
+    const provider = (typeof pickProvider === 'function') ? pickProvider() : activeProvider;
+    const res = await provider.answer(raw, currentMode);
     hideTyping();
     addMsg('ai', res.text, res);
     Memory.history.push({ role: 'ai', text: res.text, intent: res.intent, ts: Date.now() });
@@ -206,6 +207,22 @@ function openDrawer() {
       <hr class="sep" />
       <button class="btn ghost" onclick="clearCtx()">🗑 پاک کردن زمینه</button>
       <hr class="sep" />
+      <h3>🤖 اتصال Arena (مدل ابری)</h3>
+      <p style="font-size:11px;color:var(--text3);margin-bottom:10px">
+        Arena موتور استدلال می‌شود و دانش آسانسوری Z Lift قبل از هر پاسخ به آن تزریق می‌شود (RAG).
+        ⚠️ کلید API فقط روی همین دستگاه ذخیره می‌شود — هرگز در کد یا سرور Z Lift قرار نمی‌گیرد.
+        روش امن‌تر: آدرس یک proxy شخصی که کلید را خودش نگه می‌دارد.
+      </p>
+      <div class="field"><label>آدرس Endpoint (سازگار با OpenAI، https)</label>
+        <input id="ar_endpoint" dir="ltr" placeholder="https://your-proxy.example.com/v1/chat/completions" value="${esc(ArenaConfig.load().endpoint || '')}" /></div>
+      <div class="field"><label>نام مدل (اختیاری)</label>
+        <input id="ar_model" dir="ltr" placeholder="default" value="${esc(ArenaConfig.load().model || '')}" /></div>
+      <div class="field"><label>کلید API (اختیاری — اگر proxy خودش کلید ندارد)</label>
+        <input id="ar_key" dir="ltr" type="password" placeholder="فقط روی این دستگاه ذخیره می‌شود" value="${esc(ArenaConfig.load().apiKey || '')}" /></div>
+      <button class="btn" onclick="saveArenaCfg()">💾 ذخیره و تست اتصال</button>
+      <div id="ar_status" style="font-size:11.5px;margin-top:8px;color:var(--text2)"></div>
+      <button class="btn ghost" style="margin-top:8px" onclick="clearArenaCfg()">🗑 قطع اتصال Arena</button>
+      <hr class="sep" />
       <h3>📚 وضعیت دانش</h3>
       <p style="font-size:11.5px;color:var(--text2);line-height:2">
         ${faNum(KNOWLEDGE.length)} مبحث فنی گردآوری‌شده<br>
@@ -234,6 +251,25 @@ function saveCtx() {
   saveSession();
   updateCtxPill();
   closeDrawer();
+}
+async function saveArenaCfg() {
+  const endpoint = $('#ar_endpoint').value.trim();
+  const model = $('#ar_model').value.trim();
+  const apiKey = $('#ar_key').value.trim();
+  const st = $('#ar_status');
+  if (!endpoint) { ArenaConfig.clear(); st.textContent = 'پیکربندی پاک شد — موتور محلی فعال است.'; window.updNet && window.updNet(); return; }
+  if (!endpoint.startsWith('https://')) { st.textContent = '⚠️ آدرس باید با https:// شروع شود.'; return; }
+  ArenaConfig.save({ endpoint, model: model || undefined, apiKey: apiKey || undefined });
+  st.textContent = '⏳ در حال تست اتصال...';
+  const hc = await ArenaProvider.healthCheck();
+  st.textContent = hc.ok ? '✅ اتصال برقرار شد — Arena فعال است.' : ('❌ اتصال برقرار نشد: ' + (hc.reason || '') + ' — موتور محلی فعال می‌ماند.');
+  window.updNet && window.updNet();
+}
+function clearArenaCfg() {
+  ArenaConfig.clear();
+  const st = $('#ar_status');
+  if (st) st.textContent = 'اتصال Arena حذف شد — موتور محلی فعال است.';
+  window.updNet && window.updNet();
 }
 function clearCtx() { Memory.ctx = {}; saveSession(); updateCtxPill(); closeDrawer(); }
 function updateCtxPill() {
@@ -293,9 +329,14 @@ function autoGrow() {
   // online/offline indicator (spec §38)
   function updNet() {
     const on = navigator.onLine;
-    $('#statusDot').classList.toggle('off', false); // local brain always available
-    $('#providerLabel').textContent = 'موتور محلی — ' + (on ? 'آنلاین (مدل ابری: غیرفعال)' : 'آفلاین ✓');
+    const arenaOn = (typeof ArenaProvider !== 'undefined') && ArenaProvider.available();
+    $('#statusDot').classList.toggle('off', false);
+    $('#statusDot').style.background = arenaOn ? 'var(--ai)' : 'var(--ok)';
+    $('#providerLabel').textContent = arenaOn
+      ? 'Arena + دانش Z Lift — متصل'
+      : ('موتور محلی — ' + (on ? 'آنلاین (Arena: پیکربندی نشده)' : 'آفلاین ✓'));
   }
+  window.updNet = updNet;
   window.addEventListener('online', updNet);
   window.addEventListener('offline', updNet);
   updNet();
